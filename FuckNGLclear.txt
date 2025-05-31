@@ -138,7 +138,6 @@ def spam_worker(username, messages, proxies, message_limit, delay, ua_change_int
 
 def main():
     display_intro()
-    preparer_et_lancer_python()
 
     username = input("🔤 Entrez le pseudo NGL (destinataire) : ").strip()
 
